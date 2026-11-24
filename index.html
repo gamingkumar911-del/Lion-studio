@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>लायन स्टूडियो</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+  body { background: #0f0f14; color: #f2f2f2; min-height: 100vh; }
+  .screen { display: none; padding: 16px; min-height: 100vh; }
+  .screen.active { display: block; }
+  h1 { text-align: center; color: #ffb703; margin: 24px 0 8px; }
+  .sub { text-align: center; color: #aaa; margin-bottom: 24px; }
+  input[type=password], input[type=text] { width: 100%; padding: 14px; border-radius: 10px; border: 1px solid #333; background: #1b1b24; color: #fff; font-size: 16px; margin-bottom: 12px; }
+  button { width: 100%; padding: 14px; border: 0; border-radius: 10px; background: #ffb703; color: #000; font-size: 16px; font-weight: bold; margin-bottom: 10px; }
+  button.alt { background: #2a2a36; color: #fff; }
+  button.green { background: #25d366; color: #000; }
+  .err { color: #ff6b6b; text-align: center; min-height: 20px; margin-bottom: 8px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tabs button { margin: 0; padding: 10px; font-size: 14px; }
+  .tabs button.on { background: #ffb703; color: #000; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  #chatBox { height: 60vh; overflow-y: auto; background: #15151d; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+  .msg { padding: 10px 12px; border-radius: 12px; margin-bottom: 8px; max-width: 85%; line-height: 1.5; white-space: pre-wrap; }
+  .me { background: #ffb703; color: #000; margin-left: auto; }
+  .ai { background: #262633; }
+  video { width: 100%; border-radius: 10px; background: #000; margin-bottom: 10px; }
+  .card { background: #1b1b24; border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .row button { width: auto; padding: 8px 14px; margin: 0; }
+</style>
+</head>
+<body>
+
+<!-- लॉगिन स्क्रीन -->
+<div id="loginScreen" class="screen active">
+  <h1>🦁 लायन स्टूडियो</h1>
+  <p class="sub">अंदर आने के लिए पासवर्ड डालें</p>
+  <input type="password" id="pw" placeholder="पासवर्ड">
+  <div class="err" id="loginErr"></div>
+  <button onclick="login()">अंदर जाएं</button>
+  <!-- पासवर्ड बॉक्स के ठीक नीचे व्हाट्सएप चैनल का लिंक -->
+  <button class="green" onclick="openWhatsApp()">मेरा व्हाट्सएप चैनल</button>
+</div><!-- मुख्य ऐप स्क्रीन -->
+<div id="appScreen" class="screen">
+  <h1>🦁 लायन स्टूडियो</h1>
+  <div class="tabs">
+    <button class="on" id="tabChat" onclick="showTab('chat')">चैट</button>
+    <button id="tabVoice" onclick="showTab('voice')">लाइव वॉइस</button>
+    <button id="tabLive" onclick="showTab('live')">लाइव क्लास</button>
+    <button id="tabAdmin" onclick="showTab('admin')" style="display:none">एडमिन</button>
+  </div>
+
+  <!-- AI चैट -->
+  <div id="panelChat" class="panel active">
+    <div id="chatBox"></div>
+    <input type="text" id="chatInput" placeholder="अपना सवाल यहाँ लिखें">
+    <button onclick="sendChat()">भेजें</button>
+  </div>
+
+  <!-- लाइव वॉइस -->
+  <div id="panelVoice" class="panel">
+    <div class="card"><p id="voiceStatus">बात शुरू करने के लिए नीचे बटन दबाएँ</p></div>
+    <button id="voiceBtn" onclick="toggleVoice()">बात शुरू करें</button>
+  </div>
+
+  <!-- लाइव क्लास -->
+  <div id="panelLive" class="panel">
+    <video id="liveVideo" autoplay playsinline muted></video>
+    <button id="startLiveBtn" onclick="startLive()" style="display:none">लाइव क्लास शुरू करें (सिर्फ़ एडमिन)</button>
+    <button id="stopLiveBtn" class="alt" onclick="stopLive()" style="display:none">लाइव क्लास बंद करें</button>
+    <div class="card" id="liveInfo">यहाँ लाइव क्लास दिखेगी। अभी कोई क्लास चालू नहीं है।</div>
+  </div>
+
+  <!-- एडमिन पैनल: यूज़र को दिखेगा ही नहीं -->
+  <div id="panelAdmin" class="panel">
+    <div class="card"><b>जुड़े हुए डिवाइस</b></div>
+    <div id="deviceList"></div>
+  </div>
+</div>
+<script>
+// ====== यहाँ अपनी चीज़ें बदलें ======
+const CONFIG = {
+  WHATSAPP_LINK: "https://wa.me/message/76G36CHUYOLKL1",
+  USER_PASSWORD: "user123",
+  ADMIN_PASSWORD: "owner@999",
+  // Cloudflare Worker का पता (Gemini key इसी में छिपी रहेगी)
+  API_URL: "AQ.Ab8RN6KDviwnnSdqju-0SMdHYOui_w5iPb81RLM--3R-JjnMeQ"
+};
+
+let isAdmin = false;
+let chatHistory = [];
+
+// ====== डिवाइस पहचान ======
+function getDeviceId() {
+  let id = localStorage.getItem("lion_device_id");
+  if (!id) {
+    id = "dev-" + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem("lion_device_id", id);
+  }
+  return id;
+}
+function getBlocked() { return JSON.parse(localStorage.getItem("lion_blocked") || "[]"); }
+function setBlocked(list) { localStorage.setItem("lion_blocked", JSON.stringify(list)); }
+function getDevices() { return JSON.parse(localStorage.getItem("lion_devices") || "[]"); }
+function saveDevice() {
+  const list = getDevices();
+  const id = getDeviceId();
+  if (!list.includes(id)) { list.push(id); localStorage.setItem("lion_devices", JSON.stringify(list)); }
+}
+
+// ====== व्हाट्सएप चैनल ======
+function openWhatsApp() { window.open(CONFIG.WHATSAPP_LINK, "_blank"); }
+
+// ====== लॉगिन ======
+function login() {
+  const pw = document.getElementById("pw").value.trim();
+  const err = document.getElementById("loginErr");
+  if (getBlocked().includes(getDeviceId())) { err.textContent = "यह डिवाइस ब्लॉक है।"; return; }
+  if (pw === CONFIG.ADMIN_PASSWORD) {
+    isAdmin = true;
+  } else if (pw === CONFIG.USER_PASSWORD) {
+    isAdmin = false;
+  } else {
+    err.textContent = "पासवर्ड गलत है।";
+    return;
+  }
+  saveDevice();
+  document.getElementById("loginScreen").classList.remove("active");
+  document.getElementById("appScreen").classList.add("active");
+  // एडमिन बटन और लाइव शुरू करने का बटन सिर्फ़ एडमिन को दिखेंगे
+  document.getElementById("tabAdmin").style.display = isAdmin ? "block" : "none";
+  document.getElementById("startLiveBtn").style.display = isAdmin ? "block" : "none";
+  if (isAdmin) renderDevices();
+  addMsg("ai", "नमस्ते! मैं लायन स्टूडियो का AI हूँ। आप मुझसे कुछ भी पूछ सकते हैं।");
+}
+
+// ====== टैब बदलना ======
+function showTab(name) {
+  if (name === "admin" && !isAdmin) return;
+  ["chat", "voice", "live", "admin"].forEach(function (t) {
+    document.getElementById("panel" + t[0].toUpperCase() + t.slice(1)).classList.toggle("active", t === name);
+    document.getElementById("tab" + t[0].toUpperCase() + t.slice(1)).classList.toggle("on", t === name);
+  });
+  if (name === "admin") renderDevices();
+}
+
+// ====== AI चैट (लिखकर जवाब, दोहराव नहीं) ======
+function addMsg(who, text) {
+  const box = document.getElementById("chatBox");
+  const d = document.createElement("div");
+  d.className = "msg " + who;
+  d.textContent = text;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function askAI(question) {
+  chatHistory.push({ role: "user", text: question });
+  const res = await fetch(CONFIG.API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      history: chatHistory.slice(-12),
+      system: "तुम लायन स्टूडियो के हिंदी AI सहायक हो। हमेशा सिर्फ़ हिंदी में जवाब दो। हर सवाल का सीधा और नया जवाब दो। पिछली बातें या एक ही वाक्य बार-बार मत दोहराओ।"
+    })
+  });
+  const data = await res.json();
+  const answer = data.reply || "जवाब नहीं मिल पाया, कृपया सवाल दोबारा लिखें।";
+  chatHistory.push({ role: "model", text: answer });
+  return answer;
+}
+
+async function sendChat() {
+  const input = document.getElementById("chatInput");
+  const q = input.value.trim();
+  if (!q) return;
+  input.value = "";
+  addMsg("me", q);
+  try {
+    const a = await askAI(q);
+    addMsg("ai", a);
+  } catch (e) {
+    addMsg("ai", "सर्वर से जुड़ नहीं पाया। Worker का पता CONFIG में सही है या नहीं देखें।");
+  }
+}
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Enter" && document.getElementById("chatInput") === document.activeElement) sendChat();
+});
+
+// ====== लाइव वॉइस (कॉल जैसी बातचीत) ======
+let voiceOn = false;
+let recog = null;
+
+function speak(text) {
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "hi-IN";
+  u.rate = 0.95;
+  const voices = speechSynthesis.getVoices().filter(function (v) { return v.lang === "hi-IN"; });
+  if (voices.length) u.voice = voices[0];
+  u.onend = function () { if (voiceOn && recog) { try { recog.start(); } catch (e) {} } };
+  speechSynthesis.speak(u);
+}
+
+function toggleVoice() {
+  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const status = document.getElementById("voiceStatus");
+  const btn = document.getElementById("voiceBtn");
+  if (!Rec) { status.textContent = "इस ब्राउज़र में वॉइस बातचीत उपलब्ध नहीं है।"; return; }
+  if (voiceOn) {
+    voiceOn = false;
+    if (recog) recog.stop();
+    speechSynthesis.cancel();
+    btn.textContent = "बात शुरू करें";
+    status.textContent = "बातचीत बंद हो गई।";
+    return;
+  }
+  voiceOn = true;
+  btn.textContent = "बात बंद करें";
+  recog = new Rec();
+  recog.lang = "hi-IN";
+  recog.continuous = false;
+  recog.onstart = function () { status.textContent = "सुन रहा हूँ... बोलिए"; };
+  recog.onresult = async function (ev) {
+    const q = ev.results[0][0].transcript;
+    status.textContent = "आपने कहा: " + q;
+    addMsg("me", q);
+    try {
+      const a = await askAI(q);
+      addMsg("ai", a);
+      speak(a);
+    } catch (e) {
+      status.textContent = "सर्वर से जुड़ नहीं पाया।";
+    }
+  };
+  recog.onerror = function () { status.textContent = "आवाज़ समझ नहीं आई, फिर बोलिए।"; };
+  recog.onend = function () { if (voiceOn && !speechSynthesis.speaking) { try { recog.start(); } catch (e) {} } };
+  recog.start();
+}
+
+// ====== लाइव क्लास (सिर्फ़ एडमिन कैमरा चालू कर सकता है) ======
+let liveStream = null;
+
+async function startLive() {
+  if (!isAdmin) return;
+  try {
+    liveStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    document.getElementById("liveVideo").srcObject = liveStream;
+    document.getElementById("startLiveBtn").style.display = "none";
+    document.getElementById("stopLiveBtn").style.display = "block";
+    document.getElementById("liveInfo").textContent = "लाइव क्लास चालू है।";
+  } catch (e) {
+    document.getElementById("liveInfo").textContent = "कैमरा चालू नहीं हो पाया। अनुमति दें।";
+  }
+}
+function stopLive() {
+  if (liveStream) liveStream.getTracks().forEach(function (t) { t.stop(); });
+  document.getElementById("liveVideo").srcObject = null;
+  document.getElementById("startLiveBtn").style.display = "block";
+  document.getElementById("stopLiveBtn").style.display = "none";
+  document.getElementById("liveInfo").textContent = "लाइव क्लास बंद हो गई।";
+}
+
+// ====== एडमिन: डिवाइस लिस्ट और ब्लॉक/अनब्लॉक ======
+function renderDevices() {
+  const wrap = document.getElementById("deviceList");
+  wrap.innerHTML = "";
+  const blocked = getBlocked();
+  getDevices().forEach(function (id) {
+    const row = document.createElement("div");
+    row.className = "card row";
+    const label = document.createElement("span");
+    label.textContent = id + (id === getDeviceId() ? " (यह आपका है)" : "");
+    const b = document.createElement("button");
+    const isB = blocked.includes(id);
+    b.textContent = isB ? "अनब्लॉक" : "ब्लॉक";
+    b.className = isB ? "alt" : "";
+    b.onclick = function () {
+      let list = getBlocked();
+      list = list.includes(id) ? list.filter(function (x) { return x !== id; }) : list.concat(id);
+      setBlocked(list);
+      renderDevices();
+    };
+    row.appendChild(label);
+    row.appendChild(b);
+    wrap.appendChild(row);
+  });
+}
+</script>
+</body>
+</html>
